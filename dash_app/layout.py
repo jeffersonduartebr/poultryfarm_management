@@ -1,200 +1,225 @@
 import pandas as pd
 import dash_bootstrap_components as dbc
 from dash import dcc, html, dash_table
-import plotly.graph_objects as go
 from sqlalchemy import text
 from db import get_engine
 
 engine = get_engine()
 
-def insert_weekly_layout():
+# Funções auxiliares para buscar dados do DB e preencher dropdowns
+def get_active_lots():
+    """Busca lotes com status 'Ativo' para preencher dropdowns."""
+    try:
+        with engine.connect() as conn:
+            df = pd.read_sql("SELECT id, identificador_lote FROM lotes WHERE status = 'Ativo' ORDER BY data_alojamento DESC", conn)
+            return [{"label": row['identificador_lote'], "value": row['id']} for index, row in df.iterrows()]
+    except Exception:
+        return []
+
+def get_all_lots():
+    """Busca todos os lotes para dropdowns de visualização e relatórios."""
+    try:
+        with engine.connect() as conn:
+            df = pd.read_sql("SELECT id, identificador_lote FROM lotes ORDER BY data_alojamento DESC", conn)
+            return [{"label": row['identificador_lote'], "value": row['id']} for index, row in df.iterrows()]
+    except Exception:
+        return []
+
+def get_distinct_linhagens():
+    """Busca todas as linhagens distintas cadastradas nas metas."""
+    try:
+        with engine.connect() as conn:
+            df = pd.read_sql("SELECT DISTINCT linhagem FROM metas_linhagem ORDER BY linhagem", conn)
+            return [{"label": lin, "value": lin} for lin in df['linhagem']]
+    except Exception:
+        return []
+
+# Layouts das abas principais (sem alterações)
+def lotes_layout():
     return dbc.Container([
-        html.H3("📝 Inserir Dados da Semana"),
+        html.H3("🛠️ Gestão de Lotes"),
         dbc.Row([
-            dbc.Col(dbc.Label("Aviário"), width=2),
-            dbc.Col(dbc.Input(id="input-aviario", placeholder="Aviário 01"), width=1),
-            dbc.Col(dbc.Label("N° aves alojadas"), width=1),
-            dbc.Col(dbc.Input(id="input-n-aves", type="number", value=690), width=1),
-            dbc.Col(dbc.Label("Peso médio chegada (g)"), width=1),
-            dbc.Col(dbc.Input(id="input-peso-medio", type="number", value=466), width=1),
-        ], className="mb-4", align="end"),
-        html.H5("Mortalidades da Semana"),
-        dbc.Row([
-            dbc.Col(dbc.Label("Semana (idade)"), width=2),
-            dbc.Col(dbc.Input(id="input-semana", type="number", min=1), width=1),
-            dbc.Col(dbc.Label("N° aves na semana"), width=2),
-            dbc.Col(dbc.Input(id="input-aves-semana", type="number"), width=1),
-        ], className="mb-4", align="center"),
-        dbc.Row([
-            *[dbc.Col(html.Div([dbc.Label(f"Dia {i}"), dbc.Input(id=f"input-mort-dia-{i}", type="number", value=0)]), width=1) for i in range(1, 8)],
-            dbc.Label("Mortalidade total"),
-            dbc.Col(dbc.Input(id="input-mort-total", type="number", disabled=True), width=1),
-            dbc.Label("Mortalidade acumulada"),
-            dbc.Col(dbc.Input(id="input-mort-acum", type="number", step=0.01, disabled=True), width=1),
-        ], className="mb-4", align="center"),
-        html.H5("Peso Corporal em Gramas"),
-        dbc.Row([
-            dbc.Col(dbc.Label("Data de Pesagem"), width=1),
-            dbc.Col(dcc.DatePickerSingle(id="input-data-pesagem", date=pd.to_datetime("today"), display_format="DD/MM/YYYY"), width=2),
-            dbc.Col(dbc.Label("Peso médio"), width=1),
-            dbc.Col(dbc.Input(id="input-peso-med", type="number"), width=1),
-            dbc.Col(dbc.Label("Mínimo"), width=1),
-            dbc.Col(dbc.Input(id="input-peso-min", type="number"), width=1),
-            dbc.Col(dbc.Label("Máximo"), width=1),
-            dbc.Col(dbc.Input(id="input-peso-max", type="number"), width=1),
-        ], className="mb-4", align="end"),
-        html.H5("Consumo de Ração (g)"),
-        dbc.Row([
-            dbc.Col(dbc.Label("Média (REAL)"), width=1),
-            dbc.Col(dbc.Input(id="input-consumo-real", type="number"), width=1),
-            dbc.Col(dbc.Label("Média (PADRÃO)"), width=1),
-            dbc.Col(dbc.Input(id="input-consumo-padrao", type="text"), width=1),
-            dbc.Col(dbc.Label("Acum. (REAL)"), width=1),
-            dbc.Col(dbc.Input(id="input-consumo-acum-real", type="number", disabled=True), width=1),
-            dbc.Col(dbc.Label("Acum. (PADRÃO)"), width=1),
-            dbc.Col(dbc.Input(id="input-consumo-acum-padrao", type="number", disabled=True), width=1),
-        ], className="mb-4", align="end"),
-        dbc.Button("Enviar Semana", id="btn-submit-weekly", color="primary"),
-        html.Div(id="submit-status-weekly", style={"marginTop": 20})
+            dbc.Col(dbc.Card([
+                dbc.CardHeader("Cadastrar Novo Lote"),
+                dbc.CardBody([
+                    dbc.Input(id="lote-identificador", placeholder="Identificador do Lote (Ex: Lote 2025-A)", className="mb-2"),
+                    dbc.Input(id="lote-linhagem", placeholder="Linhagem", className="mb-2"),
+                    dbc.Input(id="lote-aviario", placeholder="Aviário Alocado", className="mb-2"),
+                    dcc.DatePickerSingle(id="lote-data", date=pd.to_datetime("today"), display_format="DD/MM/YYYY", className="mb-2"),
+                    dbc.Input(id="lote-aves", type="number", placeholder="Nº de Aves Alojadas", className="mb-2"),
+                    dbc.Button("Salvar Novo Lote", id="btn-lote-submit", color="primary"),
+                    html.Div(id="lote-submit-status", className="mt-2")
+                ])
+            ]), width=5),
+            dbc.Col([
+                html.H5("Lotes Registrados"),
+                dbc.Spinner(html.Div(id="lotes-table-div")),
+                dbc.Button("Finalizar Lote Selecionado", id="btn-lote-finalize", color="warning", className="mt-2", disabled=True)
+            ], width=7)
+        ]),
     ], fluid=True)
 
 def view_layout():
-    try:
-        with engine.connect() as conn:
-            aviarios = pd.read_sql("SELECT DISTINCT aviario FROM producao_aves", conn)['aviario'].dropna().tolist()
-    except Exception as e:
-        print(f"Erro ao buscar aviarios: {e}")
-        aviarios = []
-        
-    if not aviarios:
-        return dbc.Alert("Nenhum aviário encontrado na base de dados para exibir indicadores.", color="warning")
-
+    lotes_options = get_all_lots()
+    if not lotes_options:
+        return dbc.Alert("Nenhum lote encontrado. Cadastre um lote na aba 'Gestão de Lotes'.", color="info")
     return html.Div([
-        html.H3("Indicadores da Criação"),
+        html.H3("📊 Indicadores de Desempenho do Lote"),
         dbc.Row([
-            dbc.Col(dbc.Label("Selecionar Aviário"), width="auto"),
-            dbc.Col(dcc.Dropdown(id="dropdown-aviario-indicadores", options=[{"label": av, "value": av} for av in aviarios], placeholder="Selecione um aviário"), width=3)
-        ], className="mb-4", align="center"),
+            dbc.Col(dcc.Dropdown(id="dropdown-lote-indicadores", options=lotes_options, placeholder="Selecione um lote para visualizar"), width=6)
+        ], className="mb-4", justify="center"),
         html.Hr(),
-        dbc.Spinner(dcc.Graph(id="graph-peso-medio"), color="primary"),
-        dbc.Spinner(dcc.Graph(id="graph-mortalidade"), color="danger"),
-        dbc.Spinner(dcc.Graph(id="graph-consumo"), color="success"),
-        dbc.Spinner(dcc.Graph(id="graph-mortalidade-acumulada"), color="secondary"),
-        dbc.Spinner(dcc.Graph(id="graph-consumo-comparativo"), color="info")
+        dbc.Row([
+            dbc.Col(dbc.Spinner(dcc.Graph(id="graph-peso-medio")), width=6),
+            dbc.Col(dbc.Spinner(dcc.Graph(id="graph-mortalidade-acumulada")), width=6)
+        ]),
+        dbc.Row([
+            dbc.Col(dbc.Spinner(dcc.Graph(id="graph-consumo-comparativo")), width=6),
+            dbc.Col(dbc.Spinner(dcc.Graph(id="graph-conversao-alimentar")), width=6)
+        ])
     ])
 
-def insert_daily_layout():
+def insert_weekly_layout():
     return dbc.Container([
-        html.H3("🐔 Produção Diária de Ovos"),
-        dbc.Row([dbc.Col(dbc.Label("Data"), width=2), dbc.Col(dcc.DatePickerSingle(id="daily-date", date=pd.to_datetime("today"), display_format="DD/MM/YYYY"), width=3)], className="mb-3", align="center"),
-        dbc.Row([dbc.Col(dbc.Label("Aviário"), width=1), dbc.Col(dbc.Input(id="daily-aviario", type="text", placeholder="ex. 1"), width=1)], className="mb-3", align="center"),
-        dbc.Row([dbc.Col(dbc.Label("Total de aves"), width=1), dbc.Col(dbc.Input(id="daily-total-birds", type="number", value=0), width=1)], className="mb-3", align="center"),
-        html.Br(),
-        dbc.Row([
-            dbc.Col(dbc.Label("Total de ovos"), width=1), dbc.Col(dbc.Input(id="daily-total-eggs", type="number", value=0), width=1),
-            dbc.Col(dbc.Label("Produção (%)"), width=1), dbc.Col(dbc.Input(id="daily-pct", type="number", step=0.01, disabled=True), width=1),
-        ], className="mb-3", align="center"),
-        dbc.Button("Enviar Produção Diária", id="btn-daily-submit", color="primary"),
-        html.Div(id="daily-submit-status", style={"marginTop": "1rem"}),
-        html.Hr(),
-        html.H4("📈 Produção dos Últimos 7 Dias"),
-        dbc.Spinner(dcc.Graph(id="graph-7d-eggs"), color="info")
+        html.H3("📝 Inserir Dados Semanais do Lote"),
+        dcc.Dropdown(id="dropdown-lote-weekly", options=get_active_lots(), placeholder="Selecione um Lote Ativo", className="mb-3"),
+        html.Div(id='weekly-form-div', children=[
+            dbc.Row([
+                dbc.Col([dbc.Label("Semana (idade)"), dbc.Input(id="input-semana", type="number", min=1, disabled=True)], width=3),
+                dbc.Col([dbc.Label("N° aves na semana"), dbc.Input(id="input-aves-semana", type="number", disabled=True)], width=3),
+                dbc.Col([dbc.Label("Data de Pesagem"), dcc.DatePickerSingle(id="input-data-pesagem", date=pd.to_datetime("today"), display_format="DD/MM/YYYY")], width=3)
+            ], className="mb-3"),
+            html.H5("Mortalidades da Semana"),
+            dbc.Row([*[dbc.Col(dbc.Input(id=f"input-mort-dia-{i}", type="number", value=0, placeholder=f"Dia {i}"), width=1) for i in range(1, 8)],
+                     dbc.Col([dbc.Label("Total Semana"), dbc.Input(id="input-mort-total", type="number", disabled=True)], width=2)], className="mb-3"),
+            html.H5("Desempenho da Semana"),
+            dbc.Row([
+                dbc.Col([dbc.Label("Peso médio (g)"), dbc.Input(id="input-peso-med", type="number")], width=4),
+                dbc.Col([dbc.Label("Consumo Real (g/ave/dia)"), dbc.Input(id="input-consumo-real", type="number")], width=4)
+            ], className="mb-3"),
+            dbc.Button("Enviar Semana", id="btn-submit-weekly", color="primary"),
+            html.Div(id="submit-status-weekly", className="mt-2")
+        ], style={'display': 'none'}) # Oculta até que um lote seja selecionado
     ], fluid=True)
 
-def bedding_layout():
+def financeiro_layout():
     return dbc.Container([
-        html.H3("🛏️ Registro de Camas"),
-        dbc.Row([dbc.Col(dbc.Label("Data de alojamento"), width=2), dbc.Col(dcc.DatePickerSingle(id="bed-date-lot", date=pd.to_datetime("today"), display_format="DD/MM/YYYY"), width=3)], className="mb-3"),
-        dbc.Row([dbc.Col(dbc.Label("Data de implantação"), width=2), dbc.Col(dcc.DatePickerSingle(id="bed-date-implant", display_format="DD/MM/YYYY"), width=3)], className="mb-3"),
-        dbc.Row([dbc.Col(dbc.Label("Material utilizado"), width=2), dbc.Col(dbc.Input(id="bed-material", type="text"), width=3)], className="mb-3"),
-        dbc.Row([dbc.Col(dbc.Label("Data de retirada"), width=2), dbc.Col(dcc.DatePickerSingle(id="bed-date-remove", display_format="DD/MM/YYYY"), width=3)], className="mb-3"),
-        dbc.Row([dbc.Col(dbc.Label("Tratamento"), width=2), dbc.Col(dbc.Input(id="bed-treatment", type="text"), width=3)], className="mb-3"),
-        dbc.Row([dbc.Col(dbc.Label("Destino da cama"), width=2), dbc.Col(dbc.Input(id="bed-destination", type="text"), width=3)], className="mb-3"),
-        dbc.Row([dbc.Col(dbc.Label("Contato do comprador"), width=2), dbc.Col(dbc.Input(id="bed-contact", type="text"), width=3)], className="mb-3"),
-        dbc.Button("Enviar Registro", id="btn-bed-submit", color="primary"),
-        html.Div(id="bed-submit-status", style={"marginTop": "1rem"})
-    ], fluid=True)
-
-def bait_layout():
-    return dbc.Container([
-        html.H3("🪤 Inspeção de Iscas"),
-        dbc.Row([
-            dbc.Col([dbc.Label("Nº da Isca"), dbc.Input(id="field-n_isca", type="number", min=1)], width=2),
-            dbc.Col([dbc.Label("Produto"), dbc.Input(id="field-produto", type="text")], width=3),
-            dbc.Col([dbc.Label("Local"), dbc.Input(id="field-local", type="text")], width=3),
-        ], className="mb-3"),
-        dbc.Row([
-            dbc.Col([dbc.Label("Data da Vistoria"), dcc.DatePickerSingle(id="field-data-vistoria", display_format="DD/MM/YYYY")], width='auto'),
-            dbc.Col([dbc.Label("Consumida"), dbc.Input(id="field-consumida", type="number", min=0)], width=1),
-            dbc.Col([dbc.Label("Intacta"), dbc.Input(id="field-intacta", type="number", min=0)], width=1),
-            dbc.Col([dbc.Label("Mofada"), dbc.Input(id="field-mofada", type="number", min=0)], width=1),
-            dbc.Col([dbc.Label("Responsável"), dbc.Input(id="field-responsavel", type="text")], width=3),
-        ], className="mb-3"),
-        dbc.Button("Enviar Inspeção", id="btn-bait-submit", color="primary"),
-        html.Div(id="bait-submit-status", style={"marginTop": "1rem"}),
+        html.H3("💰 Gestão Financeira do Lote"),
+        dcc.Dropdown(id="dropdown-lote-financeiro", options=get_all_lots(), placeholder="Selecione um Lote para gerenciar as finanças", className="mb-3"),
         html.Hr(),
-        html.H4("Últimas 5 Inspeções", className="my-3"),
-        dbc.Spinner(dash_table.DataTable(id='bait-history-table', style_cell={'textAlign': 'left'}, style_header={'fontWeight': 'bold'}))
-    ], fluid=True)
-
-def visits_layout():
-    return dbc.Container([
-        html.H3("📝 Registro de Visitas"),
-        dbc.Row([dbc.Col(dbc.Label("Data"), width=2), dbc.Col(dcc.DatePickerSingle(id="visit-date", display_format="DD/MM/YYYY"), width=3)], className="mb-3"),
-        dbc.Row([dbc.Col(dbc.Label("Objetivo"), width=2), dbc.Col(dbc.Textarea(id="visit-objetivo"), width=6)], className="mb-3"),
-        dbc.Row([dbc.Col(dbc.Label("Contato"), width=2), dbc.Col(dbc.Input(id="visit-contato", type="text"), width=3)], className="mb-3"),
-        dbc.Row([dbc.Col(dbc.Label("Placa Veículo"), width=2), dbc.Col(dbc.Input(id="visit-placa", type="text"), width=3)], className="mb-3"),
-        dbc.Row([dbc.Col(dbc.Label("Assinatura"), width=2), dbc.Col(dbc.Input(id="visit-assinatura", type="text"), width=3)], className="mb-3"),
-        dbc.Button("Registrar Visita", id="btn-visits-submit", color="primary"),
-        html.Div(id="visits-submit-status", style={"marginTop": "1rem"}),
+        dbc.Row([
+            dbc.Col(dbc.Card([
+                dbc.CardHeader("Registrar Custo"),
+                dbc.CardBody([
+                    dcc.DatePickerSingle(id='custo-data', date=pd.to_datetime('today'), display_format='DD/MM/YYYY', className="mb-2"),
+                    dbc.Input(id='custo-tipo', placeholder='Tipo de Custo (ex: Ração)', className="mb-2"),
+                    dbc.Input(id='custo-valor', type='number', placeholder='Valor (R$)', className="mb-2"),
+                    dbc.Button('Salvar Custo', id='btn-custo-submit', color='danger', disabled=True),
+                    html.Div(id='custo-submit-status', className='mt-2')
+                ])
+            ]), width=6),
+            dbc.Col(dbc.Card([
+                dbc.CardHeader("Registrar Receita"),
+                dbc.CardBody([
+                    dcc.DatePickerSingle(id='receita-data', date=pd.to_datetime('today'), display_format='DD/MM/YYYY', className="mb-2"),
+                    dbc.Input(id='receita-tipo', placeholder='Tipo de Receita (ex: Venda)', className="mb-2"),
+                    dbc.Input(id='receita-valor', type='number', placeholder='Valor (R$)', className="mb-2"),
+                    dbc.Button('Salvar Receita', id='btn-receita-submit', color='success', disabled=True),
+                    html.Div(id='receita-submit-status', className='mt-2')
+                ])
+            ]), width=6)
+        ]),
         html.Hr(),
-        html.H4("Últimas 5 Visitas", className="my-3"),
-        dbc.Spinner(dash_table.DataTable(id='visits-history-table', style_cell={'textAlign': 'left'}, style_header={'fontWeight': 'bold'}))
+        html.H4("Resumo Financeiro do Lote"),
+        dbc.Spinner(html.Div(id='financeiro-resumo-div'))
     ], fluid=True)
 
 def treat_layout():
     return dbc.Container([
         html.H3("💊 Registro de Tratamentos"),
-        dbc.Row([dbc.Col(dbc.Label("Aviário"), width=2), dbc.Col(dbc.Input(id="treat-aviario", type="text"), width=3)], className="mb-3"),
+        dcc.Dropdown(id="dropdown-lote-treat", options=get_active_lots(), placeholder="Selecione um Lote Ativo", className="mb-3"),
         dbc.Row([dbc.Col(dbc.Label("Medicação"), width=2), dbc.Col(dbc.Input(id="treat-medicacao", type="text"), width=3)], className="mb-3"),
         dbc.Row([dbc.Col(dbc.Label("Início"), width=2), dbc.Col(dcc.DatePickerSingle(id="treat-inicio", display_format="DD/MM/YYYY"), width=3)], className="mb-3"),
         dbc.Row([dbc.Col(dbc.Label("Término"), width=2), dbc.Col(dcc.DatePickerSingle(id="treat-termino", display_format="DD/MM/YYYY"), width=3)], className="mb-3"),
+        dbc.Row([dbc.Col(dbc.Label("Período de Carência (dias)"), width=2), dbc.Col(dbc.Input(id="treat-carencia", type="number", min=0, value=0), width=3)], className="mb-3"),
         dbc.Row([dbc.Col(dbc.Label("Forma de Admin."), width=2), dbc.Col(dbc.Input(id="treat-forma", type="text"), width=3)], className="mb-3"),
         dbc.Row([dbc.Col(dbc.Label("Motivação"), width=2), dbc.Col(dbc.Textarea(id="treat-motivo"), width=6)], className="mb-3"),
-        dbc.Button("Registrar Tratamento", id="btn-treat-submit", color="primary"),
-        html.Div(id="treat-submit-status", style={"marginTop": "1rem"}),
+        dbc.Button("Registrar Tratamento", id="btn-treat-submit", color="primary", disabled=True),
+        html.Div(id="treat-submit-status", className="mt-2"),
         html.Hr(),
-        html.H4("Últimos 5 Tratamentos", className="my-3"),
+        html.H4("Histórico de Tratamentos do Lote"),
         dbc.Spinner(dash_table.DataTable(id='treatments-history-table', style_cell={'textAlign': 'left'}, style_header={'fontWeight': 'bold'}))
     ], fluid=True)
 
 def reports_layout():
-    report_options = [
-        {'label': 'Indicadores da Criação', 'value': 'tab-view'},
-        {'label': 'Inspeção de Iscas (Histórico)', 'value': 'tab-bait'},
-        {'label': 'Registro de Visitas (Histórico)', 'value': 'tab-visits'},
-        {'label': 'Registro de Tratamentos (Histórico)', 'value': 'tab-treat'}
-    ]
     return dbc.Container([
         html.H3("📄 Gerar Relatório em PDF"),
-        html.P("Selecione as seções que deseja incluir no relatório PDF."),
-        dbc.Row([dbc.Col(dcc.Checklist(id='report-sections-checklist', options=report_options, value=['tab-view'], labelStyle={'display': 'block'}), width=6)], className="my-4"),
-        dbc.Spinner(dbc.Button("Gerar Relatório PDF", id="btn-generate-report", color="success")),
+        dcc.Dropdown(id="dropdown-lote-report", options=get_all_lots(), placeholder="Selecione um lote para o relatório", className="mb-3"),
+        dbc.Button("Gerar Relatório PDF", id="btn-generate-report", color="success", disabled=True),
         html.Div(id="report-generation-status", className="mt-3"),
         dcc.Download(id="download-pdf-report")
     ], fluid=True)
+    
+# --- NOVO LAYOUT COMPLETO PARA METAS ---
+def metas_layout():
+    """Layout completo para a gestão de Padrões/Metas por linhagem."""
+    return dbc.Container([
+        html.H3("🎯 Gestão de Padrões de Linhagem"),
+        html.P("Cadastre os valores de referência semanais para cada linhagem de ave."),
+        dbc.Row([
+            # Coluna do formulário de cadastro
+            dbc.Col(dbc.Card([
+                dbc.CardHeader("Cadastrar Novo Padrão Semanal"),
+                dbc.CardBody([
+                    dbc.Input(id="meta-linhagem", placeholder="Nome da Linhagem", className="mb-2"),
+                    dbc.Input(id="meta-semana", type="number", min=1, placeholder="Semana de Idade", className="mb-2"),
+                    dbc.Input(id="meta-peso", type="number", placeholder="Peso Médio (g)", className="mb-2"),
+                    dbc.Input(id="meta-consumo-dia", type="number", placeholder="Consumo Ave/Dia (g)", className="mb-2"),
+                    dbc.Input(id="meta-consumo-acum", type="number", placeholder="Consumo Acumulado (g)", className="mb-2"),
+                    dbc.Input(id="meta-mortalidade-acum", type="number", placeholder="Mortalidade Acumulada (%)", className="mb-2"),
+                    dbc.Button("Salvar Padrão", id="btn-meta-submit", color="primary"),
+                    html.Div(id="meta-submit-status", className="mt-2")
+                ])
+            ]), width=4),
+
+            # Coluna da tabela de visualização
+            dbc.Col([
+                html.H5("Padrões Cadastrados"),
+                dcc.Dropdown(id="dropdown-linhagem-filter", placeholder="Filtrar por Linhagem...", className="mb-2"),
+                dbc.Spinner(html.Div(id="metas-table-div"))
+            ], width=8)
+        ])
+    ], fluid=True)
 
 def create_layout():
+    """Cria a estrutura principal da aplicação, incluindo a barra de navegação e as abas."""
+    alert_toast = dbc.Toast(
+        [html.P(id="alert-toast-content", className="mb-0")],
+        id="alert-toast",
+        header="Alerta de Sistema",
+        icon="danger",
+        duration=10000,
+        is_open=False,
+        style={"position": "fixed", "top": 10, "right": 10, "width": 350, "zIndex": 9999},
+    )
+
     return html.Div([
-        dcc.Store(id='app-memory', storage_type='session'),
-        dcc.Tabs(id="tabs", value="tab-insert-weekly", children=[
-            dcc.Tab(label="Inserir Dados Semanais", value="tab-insert-weekly"),
-            dcc.Tab(label="Visualizar Indicadores", value="tab-view"),
-            dcc.Tab(label="Produção Diária de Ovos", value="tab-insert-daily"),
-            dcc.Tab(label="Registro de Camas", value="tab-bedding"),
-            dcc.Tab(label="Inspeção de Iscas", value="tab-bait"),
-            dcc.Tab(label="Registro de Visitas", value="tab-visits"),
-            dcc.Tab(label="Registro de Tratamentos", value="tab-treat"),
+        dcc.Store(id='store-active-lotes', data=get_active_lots()),
+        dcc.Interval(id='interval-alerts', interval=60 * 1000, n_intervals=0), # 1 min
+        alert_toast,
+        dbc.NavbarSimple(
+            brand="Dashboard de Gestão de Avicultura",
+            color="primary",
+            dark=True,
+            className="mb-3"
+        ),
+        dcc.Tabs(id="tabs", value="tab-view", children=[
+            dcc.Tab(label="Visão Geral", value="tab-view"),
+            dcc.Tab(label="Gestão de Lotes", value="tab-lotes"),
+            dcc.Tab(label="Dados Semanais", value="tab-insert-weekly"),
+            dcc.Tab(label="Financeiro", value="tab-financeiro"),
+            dcc.Tab(label="Tratamentos", value="tab-treat"),
+            dcc.Tab(label="Padrões (Metas)", value="tab-metas"), # Aba adicionada
             dcc.Tab(label="Relatórios", value="tab-reports"),
         ]),
         html.Div(id="tab-content", style={"padding": "1rem"})
