@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  mariadb:
+    image: mariadb:10.11
+    container_name: mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: criacao_aves
+      MYSQL_USER: avesuser
+      MYSQL_PASSWORD: avespass
+    volumes:
+      - ./db_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+
+  dash-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dash-app
+    volumes:
+      - ./dash_app:/app
+    depends_on:
+      - mariadb
+    environment:
+      DATABASE_URL: mysql+pymysql://avesuser:avespass@mariadb:3306/criacao_aves
+    ports:
+      - "8050:8050"
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  dash_app:
