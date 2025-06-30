@@ -8,18 +8,17 @@ from db import get_engine
 import dash_bootstrap_components as dbc
 import dash
 from dash import html, dcc, dash_table
+from flask_login import login_user
 import base64
 from weasyprint import HTML
 from datetime import datetime, timedelta
 
-engine = get_engine()
+from user_management import get_user_by_username
+from layout import (view_layout, lotes_layout, insert_weekly_layout,
+                    financeiro_layout, treat_layout, metas_layout, reports_layout,
+                    get_distinct_linhagens)
 
 def register_callbacks(app):
-    from layout import (view_layout, lotes_layout, insert_weekly_layout, 
-                        financeiro_layout, treat_layout, metas_layout, reports_layout,
-                        get_distinct_linhagens) # Importar a função auxiliar
-
-    # Callback principal para renderizar o conteúdo das abas
     @app.callback(Output('tab-content', 'children'), Input('tabs', 'value'))
     def render_content(tab):
         layouts = {
@@ -29,8 +28,27 @@ def register_callbacks(app):
         }
         return layouts.get(tab, lambda: html.H3("Página não encontrada"))()
 
-    # ================== Callbacks de Gestão de Lotes ==================
-    # (Callbacks de lotes permanecem os mesmos)
+    # --- CALLBACK DE LOGIN ---
+    @app.callback(
+        [Output('url', 'pathname', allow_duplicate=True),
+         Output('login-alert-div', 'children')],
+        Input('login-button', 'n_clicks'),
+        [State('login-username', 'value'),
+         State('login-password', 'value')],
+        prevent_initial_call=True
+    )
+    def login_callback(n_clicks, username, password):
+        if not username or not password:
+            return dash.no_update, dbc.Alert("Usuário e senha são obrigatórios.", color="warning")
+
+        user = get_user_by_username(username)
+        if user and user.check_password(password):
+            login_user(user)
+            return '/', None
+        else:
+            return dash.no_update, dbc.Alert("Credenciais inválidas.", color="danger")
+
+    # --- CALLBACKS DE LOTES ---
     @app.callback(
         [Output("lote-submit-status", "children"), Output("store-active-lotes", "data")],
         Input("btn-lote-submit", "n_clicks"),
@@ -43,6 +61,7 @@ def register_callbacks(app):
         if not all([identificador, data, aves]):
             return dbc.Alert("Identificador, Data e Nº de Aves são obrigatórios.", color="warning"), current_lotes
         try:
+            engine = get_engine()
             with engine.begin() as conn:
                 q = text("INSERT INTO lotes (identificador_lote, linhagem, aviario_alocado, data_alojamento, aves_alojadas, status) VALUES (:id, :lin, :avi, :dt, :aves, 'Ativo')")
                 conn.execute(q, {"id": identificador, "lin": linhagem, "avi": aviario, "dt": data, "aves": aves})
@@ -57,74 +76,191 @@ def register_callbacks(app):
     )
     def update_lotes_table(status, tab):
         if tab != 'tab-lotes': raise PreventUpdate
+        engine = get_engine()
         df = pd.read_sql("SELECT id, identificador_lote as 'Lote', linhagem as 'Linhagem', aviario_alocado as 'Aviário', data_alojamento as 'Data', aves_alojadas as 'Aves', status as 'Status' FROM lotes ORDER BY data_alojamento DESC", engine)
         return dash_table.DataTable(id='lotes-table', columns=[{"name": i, "id": i, "deletable": False} for i in df.columns], data=df.to_dict('records'), row_selectable="single", selected_rows=[])
 
-    # ================== Callbacks de Visualização (GRÁFICOS) - ATUALIZADO ==================
+    @app.callback(Output("btn-lote-finalize", "disabled"), Input("lotes-table", "selected_rows"))
+    def toggle_finalize_button(selected_rows):
+        return not selected_rows
+
+    @app.callback(
+        Output("lote-submit-status", "children", allow_duplicate=True),
+        Input("btn-lote-finalize", "n_clicks"),
+        State("lotes-table", "selected_rows"),
+        State("lotes-table", "data"),
+        prevent_initial_call=True
+    )
+    def finalize_lote(n, selected_rows, data):
+        if not n or not selected_rows: raise PreventUpdate
+        lote_id = data[selected_rows[0]]['id']
+        engine = get_engine()
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("UPDATE lotes SET status = 'Finalizado' WHERE id = :id"), {"id": lote_id})
+            return dbc.Alert(f"Lote ID {lote_id} finalizado.", color="info")
+        except Exception as e:
+            return dbc.Alert(f"Erro ao finalizar lote: {e}", color="danger")
+
+    # --- CALLBACKS DE DADOS SEMANAIS ---
+    @app.callback(
+        [Output("weekly-form-div", "style"), Output("input-aves-semana", "value"), Output("input-semana", "value")],
+        Input("dropdown-lote-weekly", "value"),
+        prevent_initial_call=True
+    )
+    def show_and_fill_weekly_form(lote_id):
+        if not lote_id: return {'display': 'none'}, None, None
+        engine = get_engine()
+        with engine.connect() as conn:
+            aves_alojadas = conn.execute(text("SELECT aves_alojadas FROM lotes WHERE id = :id"), {"id": lote_id}).scalar() or 0
+            mort_acumulada = conn.execute(text("SELECT COALESCE(SUM(mort_total), 0) FROM producao_aves WHERE lote_id = :id"), {"id": lote_id}).scalar() or 0
+            ultima_semana = conn.execute(text("SELECT COALESCE(MAX(semana_idade), 0) FROM producao_aves WHERE lote_id = :id"), {"id": lote_id}).scalar() or 0
+        aves_atuais = aves_alojadas - mort_acumulada
+        proxima_semana = ultima_semana + 1
+        return {'display': 'block'}, aves_atuais, proxima_semana
+
+    @app.callback(Output("input-mort-total", "value"), [Input(f"input-mort-dia-{i}", "value") for i in range(1, 8)])
+    def calc_mort_total(*dias):
+        return sum(v or 0 for v in dias)
+
+    @app.callback(
+        Output("submit-status-weekly", "children"),
+        Input("btn-submit-weekly", "n_clicks"),
+        [State("dropdown-lote-weekly", "value"), State("input-semana", "value"), State("input-aves-semana", "value"),
+         *[State(f"input-mort-dia-{i}", "value") for i in range(1, 8)],
+         State("input-mort-total", "value"), State("input-data-pesagem", "date"), State("input-peso-med", "value"), State("input-consumo-real", "value")],
+        prevent_initial_call=True
+    )
+    def insert_weekly_data(n, lote_id, semana, aves_semana, *args):
+        if not lote_id or not semana: return dbc.Alert("Selecione um lote e informe a semana.", color="warning")
+        
+        mort_dias = args[:7]
+        mort_total, dt_pesagem, peso_medio, consumo_real = args[7:]
+        
+        engine = get_engine()
+        try:
+            with engine.begin() as conn:
+                q = text("INSERT INTO producao_aves (lote_id, semana_idade, aves_na_semana, mort_d1, mort_d2, mort_d3, mort_d4, mort_d5, mort_d6, mort_d7, mort_total, data_pesagem, peso_medio, consumo_real_ave_dia) VALUES (:lote_id, :sem, :aves, :d1, :d2, :d3, :d4, :d5, :d6, :d7, :mt, :dt_p, :pm, :cr)")
+                params = {"lote_id": lote_id, "sem": semana, "aves": aves_semana, **{f"d{i+1}": d for i, d in enumerate(mort_dias)}, "mt": mort_total, "dt_p": dt_pesagem, "pm": peso_medio, "cr": consumo_real}
+                conn.execute(q, params)
+            return dbc.Alert("Dados da semana inseridos com sucesso!", color="success")
+        except Exception as e:
+            return dbc.Alert(f"Erro: {e}", color="danger")
+
+    # --- CALLBACKS DE VISUALIZAÇÃO ---
     @app.callback(
         [Output("graph-peso-medio", "figure"), Output("graph-mortalidade-acumulada", "figure"),
          Output("graph-consumo-comparativo", "figure"), Output("graph-conversao-alimentar", "figure")],
         Input("dropdown-lote-indicadores", "value")
     )
     def update_indicadores_graphs(lote_id):
-        if not lote_id:
-            return go.Figure(), go.Figure(), go.Figure(), go.Figure()
-
+        if not lote_id: return go.Figure(), go.Figure(), go.Figure(), go.Figure()
+        
+        engine = get_engine()
         with engine.connect() as conn:
             df_prod = pd.read_sql(text("SELECT * FROM producao_aves WHERE lote_id = :id ORDER BY semana_idade"), conn, params={"id": lote_id})
             lote_info = conn.execute(text("SELECT linhagem, aves_alojadas FROM lotes WHERE id = :id"), {"id": lote_id}).mappings().first()
             
-            # Busca as metas para a linhagem do lote selecionado
             df_metas = pd.DataFrame()
             if lote_info and lote_info['linhagem']:
                 df_metas = pd.read_sql(text("SELECT * FROM metas_linhagem WHERE linhagem = :lin ORDER BY semana_idade"), conn, params={"lin": lote_info['linhagem']})
 
-        if df_prod.empty:
-            return go.Figure(), go.Figure(), go.Figure(), go.Figure()
+        if df_prod.empty: return go.Figure(), go.Figure(), go.Figure(), go.Figure()
 
-        # Gráfico de Peso com Meta
         fig_peso = go.Figure()
         fig_peso.add_trace(go.Scatter(x=df_prod['semana_idade'], y=df_prod['peso_medio'], name='Peso Real', mode='lines+markers'))
-        if not df_metas.empty:
-            fig_peso.add_trace(go.Scatter(x=df_metas['semana_idade'], y=df_metas['peso_medio_g'], name='Padrão', mode='lines', line=dict(dash='dash', color='red')))
+        if not df_metas.empty: fig_peso.add_trace(go.Scatter(x=df_metas['semana_idade'], y=df_metas['peso_medio_g'], name='Padrão', mode='lines', line=dict(dash='dash', color='red')))
         fig_peso.update_layout(title_text="Peso Médio (g) vs. Padrão", template='plotly_white', legend_title_text='Legenda')
 
-        # Gráfico de Mortalidade com Meta
         df_prod['mort_acum'] = df_prod['mort_total'].cumsum()
         df_prod['mort_acum_pct'] = (df_prod['mort_acum'] / lote_info['aves_alojadas']) * 100
         fig_mort = go.Figure()
         fig_mort.add_trace(go.Scatter(x=df_prod['semana_idade'], y=df_prod['mort_acum_pct'], name='Mortalidade Real', mode='lines+markers'))
-        if not df_metas.empty:
-            fig_mort.add_trace(go.Scatter(x=df_metas['semana_idade'], y=df_metas['mortalidade_acum_pct'], name='Padrão', mode='lines', line=dict(dash='dash', color='red')))
+        if not df_metas.empty: fig_mort.add_trace(go.Scatter(x=df_metas['semana_idade'], y=df_metas['mortalidade_acum_pct'], name='Padrão', mode='lines', line=dict(dash='dash', color='red')))
         fig_mort.update_layout(title_text="Mortalidade Acumulada (%) vs. Padrão", yaxis_title="%", template='plotly_white', legend_title_text='Legenda')
 
-        # Gráfico de Consumo com Meta
         df_prod['consumo_acum_real'] = (df_prod['consumo_real_ave_dia'] * 7).cumsum()
         fig_cons = go.Figure()
         fig_cons.add_trace(go.Scatter(x=df_prod['semana_idade'], y=df_prod['consumo_acum_real'], name='Consumo Acum. Real', mode='lines+markers'))
-        if not df_metas.empty:
-            fig_cons.add_trace(go.Scatter(x=df_metas['semana_idade'], y=df_metas['consumo_acum_g'], name='Padrão', mode='lines', line=dict(dash='dash', color='red')))
+        if not df_metas.empty: fig_cons.add_trace(go.Scatter(x=df_metas['semana_idade'], y=df_metas['consumo_acum_g'], name='Padrão', mode='lines', line=dict(dash='dash', color='red')))
         fig_cons.update_layout(title_text="Consumo Acumulado por Ave (g) vs. Padrão", template='plotly_white', legend_title_text='Legenda')
         
-        # Gráfico de Conversão Alimentar (sem meta, pois é um indicador calculado)
         df_prod['ganho_de_peso'] = df_prod['peso_medio'].diff().fillna(df_prod['peso_medio'])
         df_prod['consumo_semanal'] = df_prod['consumo_real_ave_dia'] * 7
-        # Evitar divisão por zero ou ganho de peso negativo
         df_prod.loc[df_prod['ganho_de_peso'] <= 0, 'conv_alimentar'] = pd.NA
         df_prod.loc[df_prod['ganho_de_peso'] > 0, 'conv_alimentar'] = df_prod['consumo_semanal'] / df_prod['ganho_de_peso']
         fig_ca = px.line(df_prod.dropna(subset=['conv_alimentar']), x='semana_idade', y='conv_alimentar', title="Conversão Alimentar Semanal", template='plotly_white', markers=True)
         
         return fig_peso, fig_mort, fig_cons, fig_ca
 
-    # ================== NOVOS CALLBACKS PARA METAS ==================
+    # --- CALLBACKS FINANCEIROS ---
+    @app.callback(
+        [Output("btn-custo-submit", "disabled"), Output("btn-receita-submit", "disabled")],
+        Input("dropdown-lote-financeiro", "value")
+    )
+    def toggle_finance_buttons(lote_id):
+        return (not lote_id, not lote_id)
+
+    @app.callback(
+        Output("custo-submit-status", "children"),
+        Input("btn-custo-submit", "n_clicks"),
+        [State("dropdown-lote-financeiro", "value"), State("custo-data", "date"), 
+         State("custo-tipo", "value"), State("custo-descricao", "value"), State("custo-valor", "value")],
+         prevent_initial_call=True
+    )
+    def insert_custo(n, lote_id, data, tipo, desc, valor):
+        if not all([lote_id, data, tipo, valor]): return dbc.Alert("Todos os campos de custo são obrigatórios.", color="warning")
+        engine = get_engine()
+        try:
+            with engine.begin() as conn:
+                q = text("INSERT INTO custos_lote (lote_id, data, tipo_custo, descricao, valor) VALUES (:l, :d, :t, :desc, :v)")
+                conn.execute(q, {"l": lote_id, "d": data, "t": tipo, "desc": desc, "v": valor})
+            return dbc.Alert("Custo registrado!", color="success")
+        except Exception as e: return dbc.Alert(f"Erro: {e}", color="danger")
+
+    @app.callback(
+        Output("receita-submit-status", "children"),
+        Input("btn-receita-submit", "n_clicks"),
+        [State("dropdown-lote-financeiro", "value"), State("receita-data", "date"), 
+         State("receita-tipo", "value"), State("receita-descricao", "value"), State("receita-valor", "value")],
+         prevent_initial_call=True
+    )
+    def insert_receita(n, lote_id, data, tipo, desc, valor):
+        if not all([lote_id, data, tipo, valor]): return dbc.Alert("Todos os campos de receita são obrigatórios.", color="warning")
+        engine = get_engine()
+        try:
+            with engine.begin() as conn:
+                q = text("INSERT INTO receitas_lote (lote_id, data, tipo_receita, descricao, valor) VALUES (:l, :d, :t, :desc, :v)")
+                conn.execute(q, {"l": lote_id, "d": data, "t": tipo, "desc": desc, "v": valor})
+            return dbc.Alert("Receita registrada!", color="success")
+        except Exception as e: return dbc.Alert(f"Erro: {e}", color="danger")
+
+    @app.callback(
+        Output("financeiro-resumo-div", "children"),
+        [Input("dropdown-lote-financeiro", "value"), Input("custo-submit-status", "children"), Input("receita-submit-status", "children")],
+    )
+    def update_financeiro_resumo(lote_id, n1, n2):
+        if not lote_id: return "Selecione um lote para ver o resumo financeiro."
+        engine = get_engine()
+        with engine.connect() as conn:
+            total_custos = conn.execute(text("SELECT COALESCE(SUM(valor), 0) FROM custos_lote WHERE lote_id = :id"), {"id": lote_id}).scalar()
+            total_receitas = conn.execute(text("SELECT COALESCE(SUM(valor), 0) FROM receitas_lote WHERE lote_id = :id"), {"id": lote_id}).scalar()
+
+        saldo = total_receitas - total_custos
+        cor_saldo = "success" if saldo >= 0 else "danger"
+        return dbc.Card(dbc.CardBody([
+            html.P(f"Total de Custos: R$ {total_custos:,.2f}", className="card-text text-danger"),
+            html.P(f"Total de Receitas: R$ {total_receitas:,.2f}", className="card-text text-success"),
+            html.H4(f"Saldo: R$ {saldo:,.2f}", className=f"text-{cor_saldo} fw-bold")
+        ]))
+
+    # --- CALLBACKS DE METAS ---
     @app.callback(
         Output("dropdown-linhagem-filter", "options"),
-        Input("meta-submit-status", "children"), # Atualiza quando uma nova meta é salva
-        Input("tabs", "value") # Atualiza quando a aba é aberta
+        [Input("meta-submit-status", "children"), Input("tabs", "value")]
     )
     def update_linhagem_filter_options(status, tab):
-        if tab == 'tab-metas':
-            return get_distinct_linhagens()
+        if tab == 'tab-metas': return get_distinct_linhagens()
         raise PreventUpdate
 
     @app.callback(
@@ -136,39 +272,28 @@ def register_callbacks(app):
         prevent_initial_call=True
     )
     def save_new_meta(n_clicks, linhagem, semana, peso, c_dia, c_acum, m_acum):
-        if not all([linhagem, semana]):
-            return dbc.Alert("Linhagem e Semana são campos obrigatórios.", color="warning")
+        if not all([linhagem, semana]): return dbc.Alert("Linhagem e Semana são campos obrigatórios.", color="warning")
         
+        engine = get_engine()
         try:
             with engine.begin() as conn:
-                # Checa se já existe um registro para essa linhagem e semana para evitar duplicatas
                 q_check = text("SELECT id FROM metas_linhagem WHERE linhagem = :lin AND semana_idade = :sem")
                 existing = conn.execute(q_check, {"lin": linhagem, "sem": semana}).scalar()
                 
                 if existing:
-                    # Atualiza o registro existente
-                    q_update = text("""
-                        UPDATE metas_linhagem SET peso_medio_g = :peso, consumo_ave_dia_g = :c_dia,
-                        consumo_acum_g = :c_acum, mortalidade_acum_pct = :m_acum
-                        WHERE id = :id
-                    """)
+                    q_update = text("UPDATE metas_linhagem SET peso_medio_g = :peso, consumo_ave_dia_g = :c_dia, consumo_acum_g = :c_acum, mortalidade_acum_pct = :m_acum WHERE id = :id")
                     conn.execute(q_update, {"peso": peso, "c_dia": c_dia, "c_acum": c_acum, "m_acum": m_acum, "id": existing})
                     return dbc.Alert(f"Padrão para '{linhagem}' - Semana {semana} atualizado!", color="info")
                 else:
-                    # Insere um novo registro
-                    q_insert = text("""
-                        INSERT INTO metas_linhagem (linhagem, semana_idade, peso_medio_g, consumo_ave_dia_g, consumo_acum_g, mortalidade_acum_pct)
-                        VALUES (:lin, :sem, :peso, :c_dia, :c_acum, :m_acum)
-                    """)
+                    q_insert = text("INSERT INTO metas_linhagem (linhagem, semana_idade, peso_medio_g, consumo_ave_dia_g, consumo_acum_g, mortalidade_acum_pct) VALUES (:lin, :sem, :peso, :c_dia, :c_acum, :m_acum)")
                     conn.execute(q_insert, {"lin": linhagem, "sem": semana, "peso": peso, "c_dia": c_dia, "c_acum": c_acum, "m_acum": m_acum})
                     return dbc.Alert("Novo padrão salvo com sucesso!", color="success")
-        except Exception as e:
-            return dbc.Alert(f"Erro ao salvar o padrão: {e}", color="danger")
+        except Exception as e: return dbc.Alert(f"Erro ao salvar o padrão: {e}", color="danger")
 
     @app.callback(
         Output("metas-table-div", "children"),
         [Input("dropdown-linhagem-filter", "value"),
-         Input("meta-submit-status", "children")] # Atualiza a tabela após salvar/deletar
+         Input("meta-submit-status", "children")]
     )
     def update_metas_table(selected_linhagem, status):
         query = "SELECT id, linhagem, semana_idade as 'Semana', peso_medio_g as 'Peso (g)', consumo_ave_dia_g as 'Consumo Dia (g)', consumo_acum_g as 'Consumo Acum (g)', mortalidade_acum_pct as 'Mort. Acum (%)' FROM metas_linhagem"
@@ -178,6 +303,7 @@ def register_callbacks(app):
             params = {"lin": selected_linhagem}
         query += " ORDER BY linhagem, semana_idade"
         
+        engine = get_engine()
         df = pd.read_sql(text(query), engine, params=params)
         
         return dash_table.DataTable(
@@ -187,7 +313,7 @@ def register_callbacks(app):
             style_cell={'textAlign': 'left'},
             style_header={'fontWeight': 'bold'},
             page_size=10,
-            row_deletable=True # Permite a deleção de linhas
+            row_deletable=True
         )
     
     @app.callback(
@@ -197,162 +323,16 @@ def register_callbacks(app):
         prevent_initial_call=True
     )
     def delete_meta_row(previous, current):
-        if previous is None or len(previous) <= len(current):
-            raise PreventUpdate
+        if previous is None or len(previous) <= len(current): raise PreventUpdate
         
-        # Encontra a linha que foi removida
         deleted_row = next(row for row in previous if row not in current)
         deleted_id = deleted_row.get('id')
 
-        if not deleted_id:
-            return dbc.Alert("ID da linha não encontrado. Não foi possível deletar.", color="danger")
+        if not deleted_id: return dbc.Alert("ID da linha não encontrado.", color="danger")
             
+        engine = get_engine()
         try:
             with engine.begin() as conn:
                 conn.execute(text("DELETE FROM metas_linhagem WHERE id = :id"), {"id": deleted_id})
-            return dbc.Alert(f"Padrão ID {deleted_id} removido com sucesso.", color="warning")
-        except Exception as e:
-            return dbc.Alert(f"Erro ao remover padrão: {e}", color="danger")
-
-    # Demais callbacks (financeiro, tratamentos, etc.) permanecem aqui...
-
-
-    # ================== Callbacks Financeiros ==================
-    @app.callback(
-        [Output("btn-custo-submit", "disabled"), Output("btn-receita-submit", "disabled")],
-        Input("dropdown-lote-financeiro", "value")
-    )
-    def toggle_finance_buttons(lote_id):
-        return (not lote_id, not lote_id)
-    
-    # ... (Callbacks de inserção de custo/receita e atualização do resumo)
-
-    # ================== Callbacks de Tratamentos =================
-    @app.callback(Output("btn-treat-submit", "disabled"), Input("dropdown-lote-treat", "value"))
-    def toggle_treat_button(lote_id):
-        return not lote_id
-    
-    # ... (Callbacks de inserção de tratamento e atualização da tabela de histórico)
-
-    # ================== Callback de Alertas ==================
-    @app.callback(
-        [Output("alert-toast", "is_open"), Output("alert-toast-content", "children")],
-        Input("interval-alerts", "n_intervals")
-    )
-    def check_alerts(n):
-        alerts = []
-        with engine.connect() as conn:
-            q_carencia = text("SELECT l.identificador_lote, t.medicacao, t.data_termino, t.periodo_carencia_dias FROM tratamentos t JOIN lotes l ON t.lote_id = l.id WHERE l.status = 'Ativo' AND t.data_termino IS NOT NULL AND t.periodo_carencia_dias > 0")
-            tratamentos = conn.execute(q_carencia).mappings().fetchall()
-            for t in tratamentos:
-                data_liberacao = t['data_termino'] + timedelta(days=t['periodo_carencia_dias'])
-                if datetime.now().date() < data_liberacao:
-                    alerts.append(f"Lote '{t['identificador_lote']}' em carência por '{t['medicacao']}' até {data_liberacao.strftime('%d/%m/%Y')}.")
-        if alerts: return True, html.Ul([html.Li(a) for a in alerts])
-        return False, ""
-
-    # ================== Callback de Relatórios ==================
-    @app.callback(Output("btn-generate-report", "disabled"), Input("dropdown-lote-report", "value"))
-    def toggle_report_button(lote_id):
-        return not lote_id
-        
-    @app.callback(
-        [Output("download-pdf-report", "data"), Output("report-generation-status", "children")],
-        Input("btn-generate-report", "n_clicks"),
-        State("dropdown-lote-report", "value"),
-        prevent_initial_call=True
-    )
-    def generate_pdf_report(n_clicks, selected_sections):
-        if not n_clicks or not selected_sections:
-            raise dash.exceptions.PreventUpdate
-        
-        full_html = ""
-
-        # --- Seção de Indicadores da Criação (para TODOS os aviários) ---
-        if 'tab-view' in selected_sections:
-            try:
-                # 1. Buscar todos os aviários distintos do banco de dados
-                with engine.connect() as conn:
-                    aviarios_df = pd.read_sql("SELECT DISTINCT aviario FROM producao_aves WHERE aviario IS NOT NULL ORDER BY aviario", conn)
-                    all_aviarios = aviarios_df['aviario'].tolist()
-
-                if not all_aviarios:
-                    full_html += "<h1>Indicadores da Criação</h1><p>Nenhum aviário com dados encontrado.</p>"
-                else:
-                    # 2. Loop sobre cada aviário
-                    for aviario in all_aviarios:
-                        full_html += f"<h1>Indicadores da Criação: {aviario}</h1>"
-                        
-                        # 3. Gerar os gráficos para o aviário atual
-                        figs = atualizar_graficos(aviario)
-                        titles = ["Peso Médio", "Mortalidade Semanal", "Consumo Real", "Mortalidade Acumulada", "Consumo Acumulado"]
-                        
-                        has_data = False
-                        for fig, title in zip(figs, titles):
-                            if fig.data: # Verifica se a figura tem dados para exibir
-                                has_data = True
-                                img_bytes = fig.to_image(format="png", width=700, height=350)
-                                encoded = base64.b64encode(img_bytes).decode()
-                                full_html += f"<h3>{title}</h3><img src='data:image/png;base64,{encoded}'>"
-                        
-                        if not has_data:
-                            full_html += "<p>Não há dados suficientes para gerar gráficos para este aviário.</p>"
-
-            except Exception as e:
-                full_html += f"<h1>Indicadores da Criação</h1><p>Ocorreu um erro ao gerar os gráficos: {e}</p>"
-
-        # --- Seções de Tabelas de Histórico ---
-        if 'tab-bait' in selected_sections:
-            full_html += "<h1>Histórico de Inspeção de Iscas</h1>"
-            df = pd.read_sql("SELECT * FROM iscas ORDER BY id DESC LIMIT 20", engine)
-            full_html += df.to_html(index=False, border=1, classes="table")
-
-        if 'tab-visits' in selected_sections:
-            full_html += "<h1>Histórico de Visitas</h1>"
-            df = pd.read_sql("SELECT * FROM visitas ORDER BY id DESC LIMIT 20", engine)
-            full_html += df.to_html(index=False, border=1, classes="table")
-
-        if 'tab-treat' in selected_sections:
-            full_html += "<h1>Histórico de Tratamentos</h1>"
-            df = pd.read_sql("SELECT * FROM tratamentos ORDER BY id DESC LIMIT 20", engine)
-            full_html += df.to_html(index=False, border=1, classes="table")
-            
-        # Monta o HTML e CSS para o PDF final
-        final_html = f"""
-        <html>
-            <head>
-                <meta charset="UTF-8">
-                <style>
-                    @page {{ size: portrait; margin: 1.5cm; }} 
-                    body {{ font-family: Arial, sans-serif; font-size: 12pt; }}
-                    h1 {{ 
-                        font-size: 20pt;
-                        color: #2c3e50;
-                        border-bottom: 2px solid #3498db; 
-                        padding-bottom: 5px; 
-                        margin-top: 25px;
-                        page-break-before: always; 
-                    }}
-                    h3 {{ font-size: 14pt; color: #34495e; margin-top: 20px; }}
-                    img {{ max-width: 100%; height: auto; border: 1px solid #ddd; margin-top: 10px; }}
-                    table {{ border-collapse: collapse; width: 100%; margin-top: 15px; font-size: 9pt; page-break-inside: auto; }}
-                    tr {{ page-break-inside: avoid; page-break-after: auto; }}
-                    th, td {{ border: 1px solid #ccc; padding: 5px; text-align: left; }}
-                    th {{ background-color: #ecf0f1; }}
-                    .table {{ width: 100%; }}
-                    .title-page {{ text-align:center; page-break-after: always; }}
-                    .title-page h1 {{ border-bottom: none; page-break-before: auto; }}
-                </style>
-            </head>
-            <body>
-                <div class="title-page">
-                    <h1>Relatório Geral de Criação de Aves</h1>
-                    <p>Gerado em: {datetime.now(datetime.now().astimezone().tzinfo).strftime('%d/%m/%Y %H:%M:%S')}</p>
-                </div>
-                {full_html}
-            </body>
-        </html>
-        """
-        
-        pdf_bytes = HTML(string=final_html).write_pdf()
-        return dcc.send_bytes(pdf_bytes, "relatorio_geral_aves.pdf"), dbc.Alert("Relatório gerado com sucesso!", color="success", duration=3000)
+            return dbc.Alert(f"Padrão ID {deleted_id} removido.", color="warning")
+        except Exception as e: return dbc.Alert(f"Erro ao remover padrão: {e}", color="danger")

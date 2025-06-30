@@ -22,4 +22,4 @@ COPY . .
 EXPOSE 8050
 
 # 6. Comando de inicialização
-CMD ["python", "app.py"]
+#CMD ["python", "app.py"]

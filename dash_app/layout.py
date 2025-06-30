@@ -6,35 +6,48 @@ from db import get_engine
 
 engine = get_engine()
 
-# Funções auxiliares para buscar dados do DB e preencher dropdowns
 def get_active_lots():
-    """Busca lotes com status 'Ativo' para preencher dropdowns."""
     try:
         with engine.connect() as conn:
             df = pd.read_sql("SELECT id, identificador_lote FROM lotes WHERE status = 'Ativo' ORDER BY data_alojamento DESC", conn)
             return [{"label": row['identificador_lote'], "value": row['id']} for index, row in df.iterrows()]
-    except Exception:
-        return []
+    except Exception: return []
 
 def get_all_lots():
-    """Busca todos os lotes para dropdowns de visualização e relatórios."""
     try:
         with engine.connect() as conn:
             df = pd.read_sql("SELECT id, identificador_lote FROM lotes ORDER BY data_alojamento DESC", conn)
             return [{"label": row['identificador_lote'], "value": row['id']} for index, row in df.iterrows()]
-    except Exception:
-        return []
+    except Exception: return []
 
 def get_distinct_linhagens():
-    """Busca todas as linhagens distintas cadastradas nas metas."""
     try:
         with engine.connect() as conn:
             df = pd.read_sql("SELECT DISTINCT linhagem FROM metas_linhagem ORDER BY linhagem", conn)
             return [{"label": lin, "value": lin} for lin in df['linhagem']]
-    except Exception:
-        return []
+    except Exception: return []
 
-# Layouts das abas principais (sem alterações)
+def create_login_layout():
+    return dbc.Container([
+        dbc.Row(
+            dbc.Col(
+                dbc.Card([
+                    dbc.CardHeader(html.H4("Login do Sistema", className="text-center")),
+                    dbc.CardBody([
+                        dbc.Alert("Por favor, insira suas credenciais para acessar.", color="info"),
+                        dbc.Input(id="login-username", type="text", placeholder="Usuário", className="mb-3"),
+                        dbc.Input(id="login-password", type="password", placeholder="Senha", className="mb-3"),
+                        dbc.Button("Entrar", id="login-button", color="primary", n_clicks=0, className="w-100"),
+                        html.Div(id="login-alert-div", className="mt-3")
+                    ])
+                ]),
+                width=12, lg=4, md=6, sm=8
+            ),
+            justify="center",
+            className="mt-5"
+        )
+    ], fluid=True)
+
 def lotes_layout():
     return dbc.Container([
         html.H3("🛠️ Gestão de Lotes"),
@@ -43,9 +56,9 @@ def lotes_layout():
                 dbc.CardHeader("Cadastrar Novo Lote"),
                 dbc.CardBody([
                     dbc.Input(id="lote-identificador", placeholder="Identificador do Lote (Ex: Lote 2025-A)", className="mb-2"),
-                    dbc.Input(id="lote-linhagem", placeholder="Linhagem", className="mb-2"),
+                    dbc.Input(id="lote-linhagem", placeholder="Linhagem (Ex: Cobb, Ross)", className="mb-2"),
                     dbc.Input(id="lote-aviario", placeholder="Aviário Alocado", className="mb-2"),
-                    dcc.DatePickerSingle(id="lote-data", date=pd.to_datetime("today"), display_format="DD/MM/YYYY", className="mb-2"),
+                    dcc.DatePickerSingle(id="lote-data", date=pd.to_datetime("today"), display_format="DD/MM/YYYY", className="mb-2 d-block"),
                     dbc.Input(id="lote-aves", type="number", placeholder="Nº de Aves Alojadas", className="mb-2"),
                     dbc.Button("Salvar Novo Lote", id="btn-lote-submit", color="primary"),
                     html.Div(id="lote-submit-status", className="mt-2")
@@ -99,7 +112,7 @@ def insert_weekly_layout():
             ], className="mb-3"),
             dbc.Button("Enviar Semana", id="btn-submit-weekly", color="primary"),
             html.Div(id="submit-status-weekly", className="mt-2")
-        ], style={'display': 'none'}) # Oculta até que um lote seja selecionado
+        ], style={'display': 'none'})
     ], fluid=True)
 
 def financeiro_layout():
@@ -111,8 +124,9 @@ def financeiro_layout():
             dbc.Col(dbc.Card([
                 dbc.CardHeader("Registrar Custo"),
                 dbc.CardBody([
-                    dcc.DatePickerSingle(id='custo-data', date=pd.to_datetime('today'), display_format='DD/MM/YYYY', className="mb-2"),
+                    dcc.DatePickerSingle(id='custo-data', date=pd.to_datetime('today'), display_format='DD/MM/YYYY', className="mb-2 d-block"),
                     dbc.Input(id='custo-tipo', placeholder='Tipo de Custo (ex: Ração)', className="mb-2"),
+                    dbc.Textarea(id='custo-descricao', placeholder='Descrição (opcional)', className="mb-2"),
                     dbc.Input(id='custo-valor', type='number', placeholder='Valor (R$)', className="mb-2"),
                     dbc.Button('Salvar Custo', id='btn-custo-submit', color='danger', disabled=True),
                     html.Div(id='custo-submit-status', className='mt-2')
@@ -121,8 +135,9 @@ def financeiro_layout():
             dbc.Col(dbc.Card([
                 dbc.CardHeader("Registrar Receita"),
                 dbc.CardBody([
-                    dcc.DatePickerSingle(id='receita-data', date=pd.to_datetime('today'), display_format='DD/MM/YYYY', className="mb-2"),
+                    dcc.DatePickerSingle(id='receita-data', date=pd.to_datetime('today'), display_format='DD/MM/YYYY', className="mb-2 d-block"),
                     dbc.Input(id='receita-tipo', placeholder='Tipo de Receita (ex: Venda)', className="mb-2"),
+                    dbc.Textarea(id='receita-descricao', placeholder='Descrição (opcional)', className="mb-2"),
                     dbc.Input(id='receita-valor', type='number', placeholder='Valor (R$)', className="mb-2"),
                     dbc.Button('Salvar Receita', id='btn-receita-submit', color='success', disabled=True),
                     html.Div(id='receita-submit-status', className='mt-2')
@@ -159,17 +174,14 @@ def reports_layout():
         html.Div(id="report-generation-status", className="mt-3"),
         dcc.Download(id="download-pdf-report")
     ], fluid=True)
-    
-# --- NOVO LAYOUT COMPLETO PARA METAS ---
+
 def metas_layout():
-    """Layout completo para a gestão de Padrões/Metas por linhagem."""
     return dbc.Container([
         html.H3("🎯 Gestão de Padrões de Linhagem"),
         html.P("Cadastre os valores de referência semanais para cada linhagem de ave."),
         dbc.Row([
-            # Coluna do formulário de cadastro
             dbc.Col(dbc.Card([
-                dbc.CardHeader("Cadastrar Novo Padrão Semanal"),
+                dbc.CardHeader("Cadastrar ou Atualizar Padrão Semanal"),
                 dbc.CardBody([
                     dbc.Input(id="meta-linhagem", placeholder="Nome da Linhagem", className="mb-2"),
                     dbc.Input(id="meta-semana", type="number", min=1, placeholder="Semana de Idade", className="mb-2"),
@@ -181,8 +193,6 @@ def metas_layout():
                     html.Div(id="meta-submit-status", className="mt-2")
                 ])
             ]), width=4),
-
-            # Coluna da tabela de visualização
             dbc.Col([
                 html.H5("Padrões Cadastrados"),
                 dcc.Dropdown(id="dropdown-linhagem-filter", placeholder="Filtrar por Linhagem...", className="mb-2"),
@@ -192,34 +202,27 @@ def metas_layout():
     ], fluid=True)
 
 def create_layout():
-    """Cria a estrutura principal da aplicação, incluindo a barra de navegação e as abas."""
-    alert_toast = dbc.Toast(
-        [html.P(id="alert-toast-content", className="mb-0")],
-        id="alert-toast",
-        header="Alerta de Sistema",
-        icon="danger",
-        duration=10000,
-        is_open=False,
-        style={"position": "fixed", "top": 10, "right": 10, "width": 350, "zIndex": 9999},
+    navbar = dbc.NavbarSimple(
+        children=[
+            dbc.NavItem(dcc.Link("Sair", href="/logout", className="nav-link text-white"))
+        ],
+        brand="Dashboard de Gestão de Avicultura",
+        color="primary",
+        dark=True,
+        className="mb-3"
     )
 
     return html.Div([
         dcc.Store(id='store-active-lotes', data=get_active_lots()),
-        dcc.Interval(id='interval-alerts', interval=60 * 1000, n_intervals=0), # 1 min
-        alert_toast,
-        dbc.NavbarSimple(
-            brand="Dashboard de Gestão de Avicultura",
-            color="primary",
-            dark=True,
-            className="mb-3"
-        ),
+        dcc.Interval(id='interval-alerts', interval=60 * 1000, n_intervals=0),
+        navbar,
         dcc.Tabs(id="tabs", value="tab-view", children=[
             dcc.Tab(label="Visão Geral", value="tab-view"),
             dcc.Tab(label="Gestão de Lotes", value="tab-lotes"),
             dcc.Tab(label="Dados Semanais", value="tab-insert-weekly"),
             dcc.Tab(label="Financeiro", value="tab-financeiro"),
             dcc.Tab(label="Tratamentos", value="tab-treat"),
-            dcc.Tab(label="Padrões (Metas)", value="tab-metas"), # Aba adicionada
+            dcc.Tab(label="Padrões (Metas)", value="tab-metas"),
             dcc.Tab(label="Relatórios", value="tab-reports"),
         ]),
         html.Div(id="tab-content", style={"padding": "1rem"})
