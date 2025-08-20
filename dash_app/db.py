@@ -87,5 +87,13 @@ def init_db(engine):
         Column("descricao", Text),
         Column("valor", Float, nullable=False),
     )
+    Table(
+        "producao_ovos", metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("lote_id", Integer, ForeignKey("lotes.id", ondelete="CASCADE"), nullable=False),
+        Column("data_producao", Date, nullable=False),
+        Column("total_ovos", Integer),
+        Column("ovos_quebrados", Integer),
+    )
 
     metadata.create_all(engine)

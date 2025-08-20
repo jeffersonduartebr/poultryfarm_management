@@ -16,14 +16,16 @@ from datetime import datetime, timedelta
 from user_management import get_user_by_username
 from layout import (view_layout, lotes_layout, insert_weekly_layout,
                     financeiro_layout, treat_layout, metas_layout, reports_layout,
-                    get_distinct_linhagens)
+                    producao_layout, get_distinct_linhagens)
 
 def register_callbacks(app):
     @app.callback(Output('tab-content', 'children'), Input('tabs', 'value'))
     def render_content(tab):
         layouts = {
             'tab-view': view_layout, 'tab-lotes': lotes_layout,
-            'tab-insert-weekly': insert_weekly_layout, 'tab-financeiro': financeiro_layout,
+            'tab-insert-weekly': insert_weekly_layout,
+            'tab-producao': producao_layout,  
+            'tab-financeiro': financeiro_layout,
             'tab-treat': treat_layout, 'tab-metas': metas_layout, 'tab-reports': reports_layout
         }
         return layouts.get(tab, lambda: html.H3("Página não encontrada"))()
@@ -336,3 +338,78 @@ def register_callbacks(app):
                 conn.execute(text("DELETE FROM metas_linhagem WHERE id = :id"), {"id": deleted_id})
             return dbc.Alert(f"Padrão ID {deleted_id} removido.", color="warning")
         except Exception as e: return dbc.Alert(f"Erro ao remover padrão: {e}", color="danger")
+
+    # --- CALLBACKS DE PRODUÇÃO DE OVOS ---
+    @app.callback(
+        Output("btn-producao-submit", "disabled"),
+        Input("dropdown-lote-producao", "value")
+    )
+    def toggle_producao_button(lote_id):
+        return not lote_id
+
+    @app.callback(
+        Output("producao-submit-status", "children"),
+        Input("btn-producao-submit", "n_clicks"),
+        [State("dropdown-lote-producao", "value"),
+         State("producao-data", "date"),
+         State("producao-total-ovos", "value"),
+         State("producao-ovos-quebrados", "value")],
+        prevent_initial_call=True
+    )
+    def insert_producao_data(n, lote_id, data, total_ovos, ovos_quebrados):
+        if not all([lote_id, data, total_ovos is not None]):
+            return dbc.Alert("Lote, data e total de ovos são obrigatórios.", color="warning")
+
+        engine = get_engine()
+        try:
+            with engine.begin() as conn:
+                q = text("""
+                    INSERT INTO producao_ovos (lote_id, data_producao, total_ovos, ovos_quebrados)
+                    VALUES (:lote_id, :data, :total, :quebrados)
+                """)
+                params = {
+                    "lote_id": lote_id,
+                    "data": data,
+                    "total": total_ovos,
+                    "quebrados": ovos_quebrados
+                }
+                conn.execute(q, params)
+            return dbc.Alert("Dados de produção inseridos com sucesso!", color="success")
+        except Exception as e:
+            return dbc.Alert(f"Erro ao inserir dados: {e}", color="danger")
+        
+    # (resto dos callbacks de produção...)
+
+    @app.callback(
+        Output("producao-table-div", "children"),
+        [Input("dropdown-lote-producao", "value"),
+         Input("producao-submit-status", "children")] # Atualiza a tabela após novo registro
+    )
+    def update_producao_table(lote_id, submit_status):
+        if not lote_id:
+            return "" # Não mostra nada se nenhum lote for selecionado
+
+        engine = get_engine()
+        # Query para buscar os últimos 7 registros do lote selecionado
+        query = text("""
+            SELECT
+                DATE_FORMAT(data_producao, '%d/%m/%Y') as 'Data',
+                total_ovos as 'Total de Ovos',
+                ovos_quebrados as 'Ovos Quebrados'
+            FROM producao_ovos
+            WHERE lote_id = :lote_id
+            ORDER BY data_producao DESC
+            LIMIT 7
+        """)
+        df = pd.read_sql(query, engine, params={"lote_id": lote_id})
+
+        if df.empty:
+            return dbc.Alert("Nenhum dado de produção encontrado para este lote.", color="info")
+
+        # Cria e retorna a DataTable
+        return dash_table.DataTable(
+            columns=[{"name": i, "id": i} for i in df.columns],
+            data=df.to_dict('records'),
+            style_cell={'textAlign': 'center', 'padding': '5px'},
+            style_header={'backgroundColor': 'lightgrey', 'fontWeight': 'bold'},
+        )

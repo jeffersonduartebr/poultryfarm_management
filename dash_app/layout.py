@@ -201,6 +201,41 @@ def metas_layout():
         ])
     ], fluid=True)
 
+def producao_layout():
+    return dbc.Container([
+        html.H3("🥚 Registro de Produção de Ovos"),
+        dcc.Dropdown(
+            id="dropdown-lote-producao",
+            options=get_active_lots(),
+            placeholder="Selecione um Lote Ativo",
+            className="mb-3"
+        ),
+        dbc.Row([
+            dbc.Col([
+                dbc.Label("Data da Produção"),
+                dcc.DatePickerSingle(
+                    id="producao-data",
+                    date=pd.to_datetime("today"),
+                    display_format="DD/MM/YYYY",
+                    className="d-block"
+                )
+            ], width=4),
+            dbc.Col([
+                dbc.Label("Total de Ovos Produzidos"),
+                dbc.Input(id="producao-total-ovos", type="number", min=0)
+            ], width=4),
+            dbc.Col([
+                dbc.Label("Ovos Quebrados/Trincados"),
+                dbc.Input(id="producao-ovos-quebrados", type="number", min=0, value=0)
+            ], width=4),
+        ], className="mb-3"),
+        dbc.Button("Salvar Produção", id="btn-producao-submit", color="primary", disabled=True),
+        html.Div(id="producao-submit-status", className="mt-2"),
+        html.Hr(className="my-4"),
+        html.H4("Últimos 7 Dias de Produção Registrada"),
+        dbc.Spinner(html.Div(id="producao-table-div"))
+    ], fluid=True)
+
 def create_layout():
     navbar = dbc.NavbarSimple(
         children=[
@@ -219,7 +254,8 @@ def create_layout():
         dcc.Tabs(id="tabs", value="tab-view", children=[
             dcc.Tab(label="Visão Geral", value="tab-view"),
             dcc.Tab(label="Gestão de Lotes", value="tab-lotes"),
-            dcc.Tab(label="Dados Semanais", value="tab-insert-weekly"),
+            dcc.Tab(label="Produção", value="tab-producao"),
+            dcc.Tab(label="Peso e mortalidade", value="tab-insert-weekly"),
             dcc.Tab(label="Financeiro", value="tab-financeiro"),
             dcc.Tab(label="Tratamentos", value="tab-treat"),
             dcc.Tab(label="Padrões (Metas)", value="tab-metas"),
@@ -227,3 +263,4 @@ def create_layout():
         ]),
         html.Div(id="tab-content", style={"padding": "1rem"})
     ])
+
