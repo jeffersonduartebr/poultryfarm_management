@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  mariadb:
+    image: mariadb:10.11
+    container_name: mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: criacao_aves
+      MYSQL_USER: avesuser
+      MYSQL_PASSWORD: avespass
+    volumes:
+      - db_data:/var/lib/mysql
+    ports:
+      - "3306:3306" # Mantém a porta do DB exposta para acesso externo, se necessário
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  dash-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dash-app
+    volumes:
+      - ./dash_app:/app # Monta o código da aplicação para desenvolvimento
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql+pymysql://root:rootpass@mariadb:3306/criacao_aves
+    # O comando agora inicia o Gunicorn para servir a aplicação.
+    # 'app:server' refere-se à variável 'server' no arquivo 'app.py'
+    command: gunicorn --bind 0.0.0.0:8050 --workers 4 --threads 2 app:server
+    # A porta 8050 não é mais exposta ao host, apenas ao Nginx.
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: nginx
+    # Expõe a porta 8050 no host e a encaminha para a porta 80 do Nginx
+    ports:
+      - "8050:80"
+    volumes:
+      # Mapeia o arquivo de configuração do Nginx
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - dash-app
+    restart: unless-stopped
+
+volumes:
+  db_data:

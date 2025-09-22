@@ -1,0 +1,12 @@
+dash
+dash-bootstrap-components
+pandas
+plotly
+SQLAlchemy
+pymysql
+weasyprint
+kaleido
+pango
+flask_login
+werkzeug
+gunicorn
