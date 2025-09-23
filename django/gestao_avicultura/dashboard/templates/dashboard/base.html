@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gestão de Avicultura</title>
+</head>
+<body>
+    <nav>
+        <a href="{% url 'dashboard' %}">Visão Geral</a>
+        <a href="#">Gestão de Lotes</a>
+        <a href="#">Peso e Mortalidade</a>
+        <a href="{% url 'producao' %}">Produção</a>
+        <a href="{% url 'logout' %}">Sair</a>
+    </nav>
+
+    <hr>
+
+    <main>
+        {% block content %}
+        {% endblock %}
+    </main>
+</body>
+</html>

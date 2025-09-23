@@ -1,0 +1,56 @@
+{% extends 'dashboard/base.html' %}
+
+{% block content %}
+<h3>🥚 Registro de Produção de Ovos</h3>
+
+<form method="get">
+    <select name="lote_id" onchange="this.form.submit()">
+        <option value="">Selecione um Lote</option>
+        {% for lote in lotes %}
+            <option value="{{ lote.id }}" {% if lote.id == selected_lote_id|add:0 %}selected{% endif %}>
+                {{ lote.identificador_lote }}
+            </option>
+        {% endfor %}
+    </select>
+</form>
+
+<hr>
+
+{% if selected_lote_id %}
+    <h4>Registrar Produção</h4>
+    <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="lote" value="{{ selected_lote_id }}">
+        {{ form.as_p }}
+        <button type="submit">Salvar Produção</button>
+    </form>
+
+    <hr>
+
+    <h4>Últimos 7 Dias de Produção Registrada</h4>
+    {% if producao_recente %}
+    <table border="1">
+        <thead>
+            <tr>
+                <th>Data</th>
+                <th>Total de Ovos</th>
+                <th>Ovos Quebrados</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for producao in producao_recente %}
+            <tr>
+                <td>{{ producao.data_producao|date:"d/m/Y" }}</td>
+                <td>{{ producao.total_ovos }}</td>
+                <td>{{ producao.ovos_quebrados }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>Nenhum dado de produção encontrado para este lote.</p>
+    {% endif %}
+
+{% endif %}
+
+{% endblock %}
