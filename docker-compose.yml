@@ -40,9 +40,9 @@ services:
   nginx:
     image: nginx:1.25-alpine
     container_name: nginx
-    # Expõe a porta 8050 no host e a encaminha para a porta 80 do Nginx
+    # Expõe a porta 80 no host e a encaminha para a porta 80 do Nginx
     ports:
-      - "8050:80"
+      - "80:80"
     volumes:
       # Mapeia o arquivo de configuração do Nginx
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf

@@ -95,5 +95,14 @@ def init_db(engine):
         Column("total_ovos", Integer),
         Column("ovos_quebrados", Integer),
     )
+    Table(
+        "qualidade_agua", metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("lote_id", Integer, ForeignKey("lotes.id", ondelete="CASCADE"), nullable=False),
+        Column("data_medicao", Date, nullable=False),
+        Column("ph", Float, nullable=False),
+        Column("alcalinidade_ppm", Integer, nullable=False),
+        UniqueConstraint("lote_id", "data_medicao", name="uq_lote_data_agua")
+    )    
 
-    metadata.create_all(engine)
+    metadata.create_all(engine, checkfirst=True)

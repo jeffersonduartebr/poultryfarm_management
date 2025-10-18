@@ -1,8 +1,7 @@
 import os
 import dash
 import dash_bootstrap_components as dbc
-# Importamos apenas o que é necessário, sem o Redirect
-from dash import dcc, html, Output, Input 
+from dash import dcc, html, Output, Input
 from flask import Flask
 from flask_login import LoginManager, current_user, logout_user
 
@@ -16,15 +15,20 @@ server = Flask(__name__)
 app = dash.Dash(
     __name__,
     server=server,
-    external_stylesheets=[dbc.themes.BOOTSTRAP],
+    external_stylesheets=[
+        dbc.themes.BOOTSTRAP  # Bootstrap responsivo
+        # Removido dbc.icons.BOOTSTRAP para evitar AttributeError se não existir na versão instalada
+    ],
     suppress_callback_exceptions=True,
-    meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}]
+    meta_tags=[
+        # Essencial para mobile (e evita zoom automático em alguns teclados)
+        {"name": "viewport", "content": "width=device-width, initial-scale=1, maximum-scale=1"}
+    ]
 )
 app.title = "Dashboard de Gestão de Avicultura"
-
 server.config.update(SECRET_KEY=os.urandom(24))
 
-# --- Configuração do LoginManager ---
+# --- Login Manager ---
 login_manager = LoginManager()
 login_manager.init_app(server)
 login_manager.login_view = '/login'
@@ -33,36 +37,43 @@ login_manager.login_view = '/login'
 def load_user(user_id):
     return get_user_by_id(int(user_id))
 
-# --- Layout Dinâmico e Roteamento ---
+# --- Layout Dinâmico / Roteamento ---
 app.layout = html.Div([
-    # O componente dcc.Location principal que lê a URL
     dcc.Location(id='url', refresh=False),
-    # O conteúdo da página será renderizado aqui
-    html.Div(id='page-content')
+    html.Div(id='page-content', style={"minHeight": "100vh"})
 ])
 
 @app.callback(Output('page-content', 'children'), Input('url', 'pathname'))
 def display_page(pathname):
-    # Lógica de redirecionamento para usuário LOGADO
+    # ✅ Rota pública: /public/lote/<id>  (sem login)
+    if pathname and pathname.startswith('/public/lote/'):
+        try:
+            lote_id = int(pathname.split('/')[3])
+        except Exception:
+            return html.Div(
+                dbc.Alert("URL inválida. Lote não identificado.", color="danger"),
+                style={"padding": "1rem"}
+            )
+        from layout import layout_public_lote
+        return layout_public_lote(lote_id)
+
+    # 🔐 Rotas privadas (requer login)
     if current_user.is_authenticated:
         if pathname == '/login':
-            # Se tentar acessar /login, redireciona para a home
             return dcc.Location(pathname='/', id='redirect-to-home')
         if pathname == '/logout':
             logout_user()
-            # Redireciona para o login após sair
             return dcc.Location(pathname='/login', id='redirect-after-logout')
-        # Se estiver em qualquer outra página, mostra o layout principal
+        from layout import create_layout
         return create_layout()
-    # Lógica de redirecionamento para usuário NÃO LOGADO
     else:
+        from layout import create_login_layout
         if pathname == '/login':
-            # Se já estiver na página de login, mostra o layout de login
             return create_login_layout()
-        # Se tentar acessar qualquer outra página, redireciona para o login
         return dcc.Location(pathname='/login', id='redirect-to-login')
 
-# --- Inicialização Final ---
+
+# --- Inicialização Banco e Callbacks ---
 engine = get_engine()
 init_db(engine)
 register_callbacks(app)

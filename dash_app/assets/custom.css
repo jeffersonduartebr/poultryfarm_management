@@ -1,0 +1,38 @@
+/* ===== Ajustes globais para melhor experiência em mobile ===== */
+
+/* Reduz margens e padding em telas pequenas */
+@media (max-width: 768px) {
+    body {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+    .container, .dbc {
+        padding: 0.5rem !important;
+    }
+    .card {
+        margin-bottom: 12px !important;
+    }
+    .nav-link {
+        padding: 8px !important;
+    }
+    .dash-table-container .dash-spreadsheet-container {
+        font-size: 12px !important; /* Tabela legível em mobile */
+    }
+    .tab {
+        font-size: 13px !important;
+        padding: 6px !important;
+    }
+}
+
+/* Permite scroll horizontal nas Tabs no mobile */
+.dash-tabs {
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+}
+
+/* Gráficos fluidos */
+.js-plotly-plot, .dash-graph {
+    width: 100% !important;
+    height: auto !important;
+    max-width: 100% !important;
+}

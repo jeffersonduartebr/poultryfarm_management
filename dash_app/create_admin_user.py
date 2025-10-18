@@ -15,6 +15,7 @@ def main():
 
         if password != password_confirm:
             print("\nAs senhas não coincidem. Operação cancelada.")
+            print(password)
             return
 
         if not username or not password:
