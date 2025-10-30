@@ -1,7 +1,6 @@
 from sqlalchemy import (create_engine, MetaData, Table, Column, Integer,
                         String, Float, Date, Text, ForeignKey, Enum)
 import os
-from sqlalchemy import UniqueConstraint
 
 def get_engine():
     """Cria e retorna uma conexão com o banco de dados."""
