@@ -122,10 +122,10 @@ def register_callbacks(app):
         with engine.connect() as conn:
             aves_alojadas = conn.execute(text("SELECT aves_alojadas FROM lotes WHERE id = :id"), {"id": lote_id}).scalar() or 0
             mort_acumulada = conn.execute(text("SELECT COALESCE(SUM(mort_total), 0) FROM producao_aves WHERE lote_id = :id"), {"id": lote_id}).scalar() or 0
-            ultima_semana = conn.execute(text("SELECT COALESCE(MAX(semana_idade), 0) FROM producao_aves WHERE lote_id = :id"), {"id": lote_id}).scalar() or 0
+            # Removemos a consulta da ultima_semana
         aves_atuais = aves_alojadas - mort_acumulada
-        proxima_semana = ultima_semana + 1
-        return {'display': 'block'}, aves_atuais, proxima_semana
+        # Retornamos None para o valor da semana, para que o usuário preencha.
+        return {'display': 'block'}, aves_atuais, None
 
     @app.callback(Output("input-mort-total", "value"), [Input(f"input-mort-dia-{i}", "value") for i in range(1, 8)])
     def calc_mort_total(*dias):

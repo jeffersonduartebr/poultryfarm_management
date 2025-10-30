@@ -140,7 +140,7 @@ def insert_weekly_layout():
 
         html.Div(id='weekly-form-div', children=[
             dbc.Row([
-                dbc.Col([dbc.Label("Semana (idade)"), dbc.Input(id="input-semana", type="number", min=1, disabled=True)], xs=6, md=3),
+                dbc.Col([dbc.Label("Semana (idade)"), dbc.Input(id="input-semana", type="number", min=1, placeholder="Informe a semana")], xs=6, md=3),
                 dbc.Col([dbc.Label("N° aves na semana"), dbc.Input(id="input-aves-semana", type="number", disabled=True)], xs=6, md=3),
                 dbc.Col([dbc.Label("Data de Pesagem"), dcc.DatePickerSingle(id="input-data-pesagem", date=pd.to_datetime("today"), display_format="DD/MM/YYYY")], xs=12, md=3)
             ], className="mb-3"),
