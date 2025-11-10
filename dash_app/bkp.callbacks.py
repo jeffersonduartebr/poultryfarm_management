@@ -122,10 +122,10 @@ def register_callbacks(app):
         with engine.connect() as conn:
             aves_alojadas = conn.execute(text("SELECT aves_alojadas FROM lotes WHERE id = :id"), {"id": lote_id}).scalar() or 0
             mort_acumulada = conn.execute(text("SELECT COALESCE(SUM(mort_total), 0) FROM producao_aves WHERE lote_id = :id"), {"id": lote_id}).scalar() or 0
-            ultima_semana = conn.execute(text("SELECT COALESCE(MAX(semana_idade), 0) FROM producao_aves WHERE lote_id = :id"), {"id": lote_id}).scalar() or 0
+            # Removemos a consulta da ultima_semana
         aves_atuais = aves_alojadas - mort_acumulada
-        proxima_semana = ultima_semana + 1
-        return {'display': 'block'}, aves_atuais, proxima_semana
+        # Retornamos None para o valor da semana, para que o usuário preencha.
+        return {'display': 'block'}, aves_atuais, None
 
     @app.callback(Output("input-mort-total", "value"), [Input(f"input-mort-dia-{i}", "value") for i in range(1, 8)])
     def calc_mort_total(*dias):
@@ -461,103 +461,6 @@ def register_callbacks(app):
         )
 
     # ==========================================================
-    # === SEÇÃO: TRATAMENTOS (5W2H) - (NOVO BLOCO)           ===
-    # ==========================================================
-
-    # Habilita o botão se o lote e a medicação (O Quê) estiverem preenchidos
-    @app.callback(
-        Output("btn-treat-submit", "disabled"),
-        [Input("dropdown-lote-treat", "value"),
-         Input("treat-medicacao", "value")]
-    )
-    def toggle_treat_button(lote_id, medicacao):
-        return not (lote_id and medicacao)
-
-    # Salva o tratamento no banco
-    @app.callback(
-        Output("treat-submit-status", "children"),
-        Input("btn-treat-submit", "n_clicks"),
-        [
-            State("dropdown-lote-treat", "value"),
-            State("treat-medicacao", "value"),    # What
-            State("treat-motivo", "value"),       # Why
-            State("treat-inicio", "date"),        # When
-            State("treat-termino", "date"),       # When
-            State("treat-forma", "value"),        # How
-            State("treat-responsavel", "value"),  # Who
-            State("treat-custo-estimado", "value"), # How Much
-            State("treat-carencia", "value")
-        ],
-        prevent_initial_call=True
-    )
-    def save_treatment(n_clicks, lote_id, medicacao, motivo, inicio, termino, forma, responsavel, custo, carencia):
-        if not (lote_id and medicacao):
-            return dbc.Alert("Lote (Onde) e Medicação (O Quê) são obrigatórios.", color="warning")
-
-        engine = get_engine()
-        try:
-            with engine.begin() as conn:
-                q = text("""
-                    INSERT INTO tratamentos 
-                    (lote_id, medicacao, motivacao, data_inicio, data_termino, forma_admin, 
-                     responsavel, custo_estimado, periodo_carencia_dias)
-                    VALUES (:lote_id, :what, :why, :w_ini, :w_end, :how, :who, :how_m, :carencia)
-                """)
-                params = {
-                    "lote_id": lote_id,
-                    "what": medicacao,
-                    "why": motivo,
-                    "w_ini": inicio,
-                    "w_end": termino,
-                    "how": forma,
-                    "who": responsavel,
-                    "how_m": custo,
-                    "carencia": carencia
-                }
-                conn.execute(q, params)
-            return dbc.Alert("Plano de tratamento salvo com sucesso!", color="success")
-        except Exception as e:
-            return dbc.Alert(f"Erro ao salvar: {e}", color="danger")
-
-    # Atualiza a tabela de histórico
-    @app.callback(
-        Output("treatments-history-table-div", "children"),
-        [Input("dropdown-lote-treat", "value"),
-         Input("treat-submit-status", "children")] # Atualiza após salvar
-    )
-    def update_treat_table(lote_id, status_msg):
-        if not lote_id:
-            return ""
-
-        engine = get_engine()
-        query = text("""
-            SELECT 
-                DATE_FORMAT(data_inicio, '%d/%m/%Y') as 'Início',
-                medicacao as 'O Quê',
-                motivacao as 'Por Quê',
-                responsavel as 'Quem',
-                forma_admin as 'Como',
-                custo_estimado as 'Custo (R$)',
-                DATE_FORMAT(data_termino, '%d/%m/%Y') as 'Término'
-            FROM tratamentos
-            WHERE lote_id = :lote_id
-            ORDER BY data_inicio DESC
-        """)
-        df = pd.read_sql(query, engine, params={"lote_id": lote_id})
-
-        if df.empty:
-            return dbc.Alert("Nenhum tratamento registrado para este lote.", color="info")
-
-        return dash_table.DataTable(
-            columns=[{"name": i, "id": i} for i in df.columns],
-            data=df.to_dict('records'),
-            style_cell={'textAlign': 'left', 'padding': '5px', 'whiteSpace': 'normal', 'minWidth': '100px'},
-            style_header={'backgroundColor': 'lightgrey', 'fontWeight': 'bold'},
-            page_size=10
-        )
-
-
-    # ==========================================================
     # === SEÇÃO: QUALIDADE DA ÁGUA (pH e Alcalinidade)       ===
     # ==========================================================
 
@@ -738,7 +641,7 @@ def register_callbacks(app):
                 df_trat = pd.read_sql(
                     text("""
                         SELECT data_inicio, data_termino, medicacao, forma_admin, 
-                               periodo_carencia_dias, motivacao, responsavel, custo_estimado
+                               periodo_carencia_dias, motivacao
                         FROM tratamentos
                         WHERE lote_id = :id
                           AND (data_inicio >= :inicio OR data_termino >= :inicio)
@@ -872,7 +775,7 @@ def register_callbacks(app):
             </table>
             """
 
-            # Tratamentos (5W2H) - (MODIFICADO)
+            # Tratamentos
             trat_html_rows = ""
             if not df_trat.empty:
                 for _, r in df_trat.iterrows():
@@ -881,25 +784,23 @@ def register_callbacks(app):
                         <td>{fmt_date(r['data_inicio'])}</td>
                         <td>{fmt_date(r['data_termino'])}</td>
                         <td>{r['medicacao'] or ''}</td>
-                        <td>{r['motivacao'] or ''}</td>
-                        <td>{r['responsavel'] or ''}</td>
                         <td>{r['forma_admin'] or ''}</td>
-                        <td style="text-align:right">R$ {float(r['custo_estimado'] or 0):,.2f}</td>
+                        <td style="text-align:right">{int(r['periodo_carencia_dias'] or 0)}</td>
+                        <td>{truncate_text(r['motivacao'])}</td>
                     </tr>"""
             else:
-                trat_html_rows = '<tr><td colspan="7" style="text-align:center">Sem registros de tratamento</td></tr>'
+                trat_html_rows = '<tr><td colspan="6" style="text-align:center">Sem registros de tratamento</td></tr>'
 
             trat_table_html = f"""
             <table>
                 <thead>
                     <tr>
-                        <th>Início (Quando)</th>
-                        <th>Término (Quando)</th>
-                        <th>O Quê (Medicação)</th>
-                        <th>Por Quê (Motivação)</th>
-                        <th>Quem (Responsável)</th>
-                        <th>Como (Admin.)</th>
-                        <th>Quanto (Custo R$)</th>
+                        <th>Início</th>
+                        <th>Término</th>
+                        <th>Medicação</th>
+                        <th>Forma de Administração</th>
+                        <th>Carência (dias)</th>
+                        <th>Motivação</th>
                     </tr>
                 </thead>
                 <tbody>{trat_html_rows}</tbody>
@@ -1049,7 +950,7 @@ def register_callbacks(app):
                 <h2>Mortalidade & Desempenho Semanal</h2>
                 {sem_table_html}
 
-                <h2>🩺 Plano de Ação 5W2H (Tratamentos)</h2>
+                <h2>🩺 Tratamentos Aplicados ao Lote</h2>
                 {trat_table_html}
 
                 <h2>💧 Qualidade da Água (últimos 180 dias)</h2>

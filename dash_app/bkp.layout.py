@@ -140,7 +140,7 @@ def insert_weekly_layout():
 
         html.Div(id='weekly-form-div', children=[
             dbc.Row([
-                dbc.Col([dbc.Label("Semana (idade)"), dbc.Input(id="input-semana", type="number", min=1, disabled=True)], xs=6, md=3),
+                dbc.Col([dbc.Label("Semana (idade)"), dbc.Input(id="input-semana", type="number", min=1, placeholder="Informe a semana")], xs=6, md=3),
                 dbc.Col([dbc.Label("N° aves na semana"), dbc.Input(id="input-aves-semana", type="number", disabled=True)], xs=6, md=3),
                 dbc.Col([dbc.Label("Data de Pesagem"), dcc.DatePickerSingle(id="input-data-pesagem", date=pd.to_datetime("today"), display_format="DD/MM/YYYY")], xs=12, md=3)
             ], className="mb-3"),
@@ -213,39 +213,30 @@ def financeiro_layout():
     ], fluid=True)
 
 
-# --- LAYOUT 5W2H MODIFICADO ---
 def treat_layout():
     return dbc.Container([
-        html.H3("💊 Registro de Tratamentos (5W2H)", className="text-center mb-3"),
+        html.H3("💊 Registro de Tratamentos", className="text-center mb-3"),
 
-        dcc.Dropdown(id="dropdown-lote-treat", options=get_active_lots(), placeholder="Selecione um Lote Ativo (Onde)", className="mb-3"),
+        dcc.Dropdown(id="dropdown-lote-treat", options=get_active_lots(), placeholder="Selecione um Lote Ativo", className="mb-3"),
 
         dbc.Row([
-            dbc.Col([dbc.Label("O que fazer? (Medicação)"), dbc.Input(id="treat-medicacao", type="text")], xs=12, md=6, className="mb-2"),
-            dbc.Col([dbc.Label("Por quê? (Motivação)"), dbc.Input(id="treat-motivo", type="text")], xs=12, md=6, className="mb-2"),
-        ]),
-        
-        dbc.Row([
-            dbc.Col([dbc.Label("Quando Inicia?"), dcc.DatePickerSingle(id="treat-inicio", display_format="DD/MM/YYYY", className="d-block")], xs=6, md=3, className="mb-2"),
-            dbc.Col([dbc.Label("Quando Termina?"), dcc.DatePickerSingle(id="treat-termino", display_format="DD/MM/YYYY", className="d-block")], xs=6, md=3, className="mb-2"),
-            dbc.Col([dbc.Label("Como? (Forma de Admin.)"), dbc.Input(id="treat-forma", type="text")], xs=12, md=6, className="mb-2"),
+            dbc.Col([dbc.Label("Medicação"), dbc.Input(id="treat-medicacao", type="text")], xs=12, md=4, className="mb-2"),
+            dbc.Col([dbc.Label("Início"), dcc.DatePickerSingle(id="treat-inicio", display_format="DD/MM/YYYY")], xs=6, md=4, className="mb-2"),
+            dbc.Col([dbc.Label("Término"), dcc.DatePickerSingle(id="treat-termino", display_format="DD/MM/YYYY")], xs=6, md=4, className="mb-2")
         ]),
 
         dbc.Row([
-            # --- NOVOS INPUTS 5W2H ---
-            dbc.Col([dbc.Label("Quem? (Responsável)"), dbc.Input(id="treat-responsavel", type="text")], xs=12, md=4, className="mb-3"),
-            dbc.Col([dbc.Label("Quanto? (Custo Estimado R$)"), dbc.Input(id="treat-custo-estimado", type="number", min=0, value=0)], xs=12, md=4, className="mb-3"),
-            
             dbc.Col([dbc.Label("Período de Carência (dias)"), dbc.Input(id="treat-carencia", type="number", min=0, value=0)], xs=12, md=4, className="mb-3"),
+            dbc.Col([dbc.Label("Forma de Administração"), dbc.Input(id="treat-forma", type="text")], xs=12, md=4, className="mb-3"),
+            dbc.Col([dbc.Label("Motivação"), dbc.Textarea(id="treat-motivo")], xs=12, md=4, className="mb-3"),
         ]),
 
-        dbc.Button("Registrar Tratamento (Plano de Ação)", id="btn-treat-submit", color="primary", disabled=True, className="w-100"),
+        dbc.Button("Registrar Tratamento", id="btn-treat-submit", color="primary", disabled=True, className="w-100"),
         html.Div(id="treat-submit-status", className="mt-2"),
 
         html.Hr(),
         html.H4("Histórico de Tratamentos do Lote", className="text-center"),
-        # --- DIV ATUALIZADA ---
-        dbc.Spinner(html.Div(id="treatments-history-table-div"))
+        dbc.Spinner(dash_table.DataTable(id='treatments-history-table', style_cell={'textAlign': 'left'}, style_header={'fontWeight': 'bold'}))
     ], fluid=True)
 
 

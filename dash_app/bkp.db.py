@@ -1,7 +1,7 @@
 from sqlalchemy import (create_engine, MetaData, Table, Column, Integer,
-                        String, Float, Date, Text, ForeignKey, Enum,
-                        UniqueConstraint) # Adicionei UniqueConstraint que faltava no seu original
+                        String, Float, Date, Text, ForeignKey, Enum)
 import os
+from sqlalchemy import UniqueConstraint
 
 def get_engine():
     """Cria e retorna uma conexão com o banco de dados."""
@@ -61,17 +61,12 @@ def init_db(engine):
         "tratamentos", metadata,
         Column("id", Integer, primary_key=True, autoincrement=True),
         Column("lote_id", Integer, ForeignKey("lotes.id", ondelete="CASCADE"), nullable=False),
-        Column("medicacao", String(100)),        # WHAT
-        Column("data_inicio", Date),            # WHEN (Início)
-        Column("data_termino", Date),           # WHEN (Término)
+        Column("medicacao", String(100)),
+        Column("data_inicio", Date),
+        Column("data_termino", Date),
         Column("periodo_carencia_dias", Integer, default=0),
-        Column("forma_admin", String(50)),      # HOW
-        Column("motivacao", Text),              # WHY
-        
-        # --- CAMPOS 5W2H ADICIONADOS ---
-        Column("responsavel", String(100)),     # WHO
-        Column("custo_estimado", Float, default=0.0) # HOW MUCH
-        # "WHERE" (Onde) está implícito no lote_id
+        Column("forma_admin", String(50)),
+        Column("motivacao", Text),
     )
 
     Table(
